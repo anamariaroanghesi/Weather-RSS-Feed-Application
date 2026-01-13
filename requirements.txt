@@ -17,3 +17,6 @@ pydantic>=2.9.0
 
 # HTTP retry support
 urllib3>=2.2.0
+
+# Monitoring
+prometheus-fastapi-instrumentator>=6.1.0

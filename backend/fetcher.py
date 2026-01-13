@@ -13,6 +13,7 @@ Demonstrates dependability through:
 """
 
 import hashlib
+import html
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -496,11 +497,14 @@ class ANMFetcher:
         return alerts, valid_count, total_count
     
     def _clean_html(self, text: str) -> str:
-        """Remove HTML tags from text."""
+        """Remove HTML tags and decode HTML entities from text."""
         if not text:
             return ""
+        # Remove HTML tags
         text = re.sub(r'<[^>]+>', ' ', text)
-        text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
+        # Decode all HTML entities (e.g., &icirc; -> î, &ndash; -> –)
+        text = html.unescape(text)
+        # Normalize whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         return text
     
@@ -532,10 +536,31 @@ class ANMFetcher:
         """Format alert description for display."""
         clean = self._clean_html(text)
         
-        # Extract phenomena if present
-        match = re.search(r'Se vor semnala\s*:\s*(.+?)(?:$)', clean)
+        # Try different patterns for extracting the main phenomena description
+        patterns = [
+            # Pattern for "Se vor semnala: ..." (nowcast alerts)
+            r'Se vor semnala\s*:\s*(.+?)(?:$)',
+            # Pattern for "Fenomene vizate: ..." (meteorological bulletins)
+            r'Fenomene vizate\s*:\s*(.+?)(?:$)',
+            # Pattern for just the phenomena after all the metadata
+            r'Fenomene\s*:\s*conform textelor\s+Mesaj\s*:\s*(.+?)(?:Interval de valabilitate|$)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, clean, re.IGNORECASE)
+            if match:
+                result = match.group(1).strip()
+                # Clean up any trailing metadata
+                result = re.sub(r'\s*Interval de valabilitate.*$', '', result, flags=re.IGNORECASE)
+                if len(result) > 20:  # Only use if we got something meaningful
+                    return result[:500] if len(result) > 500 else result
+        
+        # Fallback: try to extract just after "Mesaj :" for bulletins
+        match = re.search(r'Mesaj\s*:\s*(?:MESAJ\s*\d+/\d+\s*)?(.+?)(?:Interval de valabilitate|$)', clean, re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            result = match.group(1).strip()
+            if len(result) > 20:
+                return result[:500] if len(result) > 500 else result
         
         return clean[:500] if len(clean) > 500 else clean
     

@@ -10,6 +10,14 @@ import { useState, useEffect, useCallback } from 'react';
 
 const POLL_INTERVAL = 60000; // 1 minute
 
+// Decode HTML entities that might be in old data
+const decodeHtmlEntities = (text) => {
+  if (!text) return text;
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+};
+
 // =============================================================================
 // Quality Badge Component
 // =============================================================================
@@ -223,7 +231,7 @@ function AlertCard({ alert }) {
         <p style={{
           margin: '0 0 12px 0', fontSize: '0.9rem', color: '#374151', lineHeight: 1.6,
         }}>
-          {alert.description}
+          {decodeHtmlEntities(alert.description)}
         </p>
       )}
       
@@ -232,7 +240,7 @@ function AlertCard({ alert }) {
           fontSize: '0.8rem', color: '#6b7280', padding: '8px 12px',
           backgroundColor: 'rgba(255,255,255,0.5)', borderRadius: '6px',
         }}>
-          📍 <strong>Zones:</strong> {alert.affected_zones}
+          📍 <strong>Zones:</strong> {decodeHtmlEntities(alert.affected_zones)}
         </div>
       )}
       
@@ -370,6 +378,10 @@ function App() {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [activeTab, setActiveTab] = useState('forecast');
+  const [seenAlertIds, setSeenAlertIds] = useState(new Set());
+
+  // Calculate unseen alerts count
+  const unseenAlertCount = alerts.filter(a => !seenAlertIds.has(a.id)).length;
 
   const fetchData = useCallback(async () => {
     try {
@@ -414,6 +426,14 @@ function App() {
   const handleCitySelect = (city) => {
     setSelectedCity(city);
     setLoading(true);
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    // Mark all current alerts as seen when viewing alerts tab
+    if (tab === 'alerts' && alerts.length > 0) {
+      setSeenAlertIds(new Set(alerts.map(a => a.id)));
+    }
   };
 
   const handleRefresh = async () => {
@@ -522,7 +542,7 @@ function App() {
               backgroundColor: '#f3f4f6', padding: '4px', borderRadius: '10px', width: 'fit-content',
             }}>
               <button
-                onClick={() => setActiveTab('forecast')}
+                onClick={() => handleTabChange('forecast')}
                 style={{
                   padding: '10px 20px', border: 'none', borderRadius: '8px',
                   backgroundColor: activeTab === 'forecast' ? 'white' : 'transparent',
@@ -534,7 +554,7 @@ function App() {
                 📊 5-Day Forecast
               </button>
               <button
-                onClick={() => setActiveTab('alerts')}
+                onClick={() => handleTabChange('alerts')}
                 style={{
                   padding: '10px 20px', border: 'none', borderRadius: '8px',
                   backgroundColor: activeTab === 'alerts' ? 'white' : 'transparent',
@@ -545,13 +565,13 @@ function App() {
                 }}
               >
                 ⚠️ Alerts ({alerts.length})
-                {alerts.length > 0 && (
+                {unseenAlertCount > 0 && (
                   <span style={{
                     position: 'absolute', top: '-4px', right: '-4px',
                     width: '20px', height: '20px', backgroundColor: '#ef4444',
                     color: 'white', borderRadius: '50%', fontSize: '0.7rem',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
-                  }}>{alerts.length}</span>
+                  }}>{unseenAlertCount}</span>
                 )}
               </button>
             </div>

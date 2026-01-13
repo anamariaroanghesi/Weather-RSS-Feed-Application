@@ -16,6 +16,8 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Gauge, Counter
 
 from .database import Database
 from .scheduler import WeatherScheduler, FetchResult
@@ -173,6 +175,79 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =============================================================================
+# Prometheus Metrics
+# =============================================================================
+
+# Custom metrics for weather data monitoring
+FORECAST_SOURCE_UP = Gauge(
+    'weather_forecast_source_up',
+    'Whether the forecast source is available (1=up, 0=down)'
+)
+ALERT_SOURCE_UP = Gauge(
+    'weather_alert_source_up', 
+    'Whether the alert source is available (1=up, 0=down)'
+)
+CITIES_AVAILABLE = Gauge(
+    'weather_cities_available',
+    'Number of cities with forecast data'
+)
+ACTIVE_ALERTS = Gauge(
+    'weather_active_alerts',
+    'Number of active weather alerts'
+)
+SOURCE_RESPONSE_TIME = Gauge(
+    'weather_source_response_time_ms',
+    'Response time from data sources in milliseconds',
+    ['source_type']
+)
+SOURCE_RELIABILITY = Gauge(
+    'weather_source_reliability_percent',
+    'Reliability percentage of data sources',
+    ['source_type']
+)
+FETCH_TOTAL = Counter(
+    'weather_fetch_total',
+    'Total number of fetch operations',
+    ['source_type', 'status']
+)
+
+def update_prometheus_metrics():
+    """Update custom Prometheus metrics from current state."""
+    if not db or not scheduler:
+        return
+    
+    try:
+        sync_status = scheduler.get_sync_status()
+        if sync_status:
+            FORECAST_SOURCE_UP.set(1 if sync_status.forecast_healthy else 0)
+            ALERT_SOURCE_UP.set(1 if sync_status.alert_healthy else 0)
+            CITIES_AVAILABLE.set(sync_status.cities_available)
+            ACTIVE_ALERTS.set(sync_status.active_alerts)
+        
+        source_health = db.get_system_status()
+        for source in source_health:
+            source_type = source.get('source_type', 'unknown')
+            SOURCE_RESPONSE_TIME.labels(source_type=source_type).set(
+                source.get('avg_response_time_ms', 0)
+            )
+            SOURCE_RELIABILITY.labels(source_type=source_type).set(
+                source.get('reliability_percent', 0)
+            )
+    except Exception as e:
+        logger.warning(f"Failed to update Prometheus metrics: {e}")
+
+# Initialize Prometheus instrumentation
+instrumentator = Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    should_instrument_requests_inprogress=True,
+    excluded_handlers=["/metrics"],
+    inprogress_name="http_requests_inprogress",
+    inprogress_labels=True,
+)
+instrumentator.instrument(app).expose(app, endpoint="/metrics")
 
 
 # =============================================================================
@@ -366,6 +441,9 @@ async def get_system_status():
     """Get comprehensive system status."""
     if not db or not scheduler:
         raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    # Update Prometheus metrics
+    update_prometheus_metrics()
     
     sync_status = scheduler.get_sync_status()
     source_health = db.get_system_status()

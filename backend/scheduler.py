@@ -91,6 +91,10 @@ class WeatherScheduler:
         
         logger.info("Starting full data sync")
         
+        # Clean up old data first
+        self.database.cleanup_old_forecasts()
+        self.database.deactivate_old_alerts(hours=48)
+        
         # Fetch forecasts (XML)
         forecast_result = self._fetch_forecasts()
         results.append(forecast_result)

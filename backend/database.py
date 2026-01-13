@@ -168,13 +168,14 @@ class Database:
                 return False
     
     def get_city_forecast(self, city: str) -> List[Dict[str, Any]]:
-        """Get forecasts for a specific city."""
+        """Get forecasts for a specific city (only current and future dates)."""
         with self._lock:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
             cursor = self._conn.execute("""
                 SELECT * FROM city_forecasts
-                WHERE city = ?
+                WHERE city = ? AND forecast_date >= ?
                 ORDER BY forecast_date ASC
-            """, (city,))
+            """, (city, today))
             return [dict(row) for row in cursor.fetchall()]
     
     def get_all_cities(self) -> List[str]:
@@ -269,6 +270,19 @@ class Database:
                 AND datetime(fetched_at) < datetime('now', ?)
             """, (f"-{hours} hours",))
             return cursor.rowcount
+    
+    def cleanup_old_forecasts(self) -> int:
+        """Remove forecasts with dates in the past."""
+        with self._lock:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            cursor = self._conn.execute("""
+                DELETE FROM city_forecasts
+                WHERE forecast_date < ?
+            """, (today,))
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old forecast entries")
+            return deleted
     
     # =========================================================================
     # Source Status Operations
